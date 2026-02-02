@@ -533,6 +533,55 @@ class SQLiteStore:
                 )
 
 
+class NullStore:
+    def __init__(self) -> None:
+        pass
+
+    def close(self) -> None:
+        return None
+
+    def get_mod(self, mod_id: str) -> Optional[Dict[str, Any]]:
+        return None
+
+    def get_mod_model(self, mod_id: str) -> Optional[Mod]:
+        return None
+
+    def get_failed_posts(self, target: str) -> List[Dict[str, Any]]:
+        return []
+
+    def get_missing_discord_posts(self) -> List[Dict[str, Any]]:
+        return []
+
+    def get_meta(self, key: str) -> Optional[str]:
+        return None
+
+    def set_meta(self, key: str, value: str) -> None:
+        return None
+
+    def export_json(self) -> Dict[str, Any]:
+        return {"mods": [], "posts": [], "meta": []}
+
+    def import_json(self, payload: Dict[str, Any]) -> None:
+        return None
+
+    def upsert_mod(self, mod: Mod, last_seen_at: str, mod_hash: str) -> None:
+        return None
+
+    def mark_posted(
+        self,
+        mod_id: str,
+        post_type: str,
+        post_id: str,
+        posted_at: str,
+        title: Optional[str] = None,
+        url: Optional[str] = None,
+        target: str = "reddit",
+        success: bool = True,
+        error_message: Optional[str] = None,
+    ) -> None:
+        return None
+
+
 def _json_load(value: Optional[str], default: Any) -> Any:
     if value is None:
         return default

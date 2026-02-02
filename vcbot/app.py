@@ -9,7 +9,7 @@ from typing import Callable, List, Optional, Tuple
 
 from .bethesda import BethesdaClient, Mod, compute_mod_hash
 from .config import Config
-from .db import SQLiteStore
+from .db import NullStore, SQLiteStore
 from .formatter import build_post_title, render_post_body
 from .reddit_client import RedditClient
 from .discord_client import DiscordClient
@@ -273,6 +273,12 @@ def sync_mods(
                 logger.warning("Skipping mod with missing content_id")
                 continue
             if effective_cutoff and _is_before_or_equal_first_ptime(mod, effective_cutoff):
+                logger.info(
+                    "Stopping at mod %s first_ptime=%s cutoff=%s",
+                    mod.mod_id,
+                    mod.first_published_at or mod.published_at,
+                    effective_cutoff,
+                )
                 stop = True
 
             mod_hash = compute_mod_hash(mod)
@@ -331,8 +337,9 @@ def run(
     dry_run: bool = False,
     max_posts: Optional[int] = None,
     manual_output_dir: Optional[str] = None,
+    ignore_db: bool = False,
 ) -> None:
-    store = SQLiteStore(config.database_path)
+    store = NullStore() if ignore_db else SQLiteStore(config.database_path)
     client = BethesdaClient(
         core_url=config.bethesda_core_url,
         content_url=config.bethesda_content_url,
@@ -342,13 +349,15 @@ def run(
     )
 
     try:
+        if ignore_db and not manual_output_dir:
+            dry_run = True
         logger.info("Manual output dir: %s", manual_output_dir or "None")
         post_count = 0
         dry_run_count = 0
         reddit = None
         discord = None
 
-        if not dry_run and not manual_output_dir:
+        if not dry_run and not manual_output_dir and not ignore_db:
             reddit_refresh_token = store.get_meta("reddit_refresh_token")
             reddit = RedditClient(
                 client_id=config.reddit_client_id,
@@ -382,13 +391,16 @@ def run(
                 output_dir = Path(manual_output_dir)
                 reddit_dir = output_dir / "reddit"
                 discord_dir = output_dir / "discord"
+                wiki_dir = output_dir / "wiki"
                 reddit_dir.mkdir(parents=True, exist_ok=True)
                 discord_dir.mkdir(parents=True, exist_ok=True)
+                wiki_dir.mkdir(parents=True, exist_ok=True)
                 logger.info("Manual output directory: %s", output_dir.resolve())
                 reddit_body = render_post_body(mod, action, config.post_template_path)
                 discord_body = render_post_body(
                     mod, action, config.discord_template_path
                 )
+                wiki_body = render_post_body(mod, action, config.wiki_template_path)
                 base_name = _safe_filename(
                     f"{mod.author_displayname or 'Unknown'}_{mod.title}_{mod.first_published_at or 'unknown'}"
                 )
@@ -404,6 +416,10 @@ def run(
                 logger.info(
                     "Wrote %s", (discord_dir / f"{base_name}.md").resolve()
                 )
+                (wiki_dir / f"{base_name}.txt").write_text(
+                    wiki_body + "\n", encoding="utf-8"
+                )
+                logger.info("Wrote %s", (wiki_dir / f"{base_name}.txt").resolve())
                 post_count += 1
                 return
 
@@ -594,6 +610,79 @@ def retry_failed_posts(config: Config, dry_run: bool = False) -> None:
                     logger.exception("Retry Discord failed for %s", mod.mod_id)
     finally:
         store.close()
+
+
+def generate_template_files(
+    config: Config,
+    output_dir: str,
+    template_kind: str,
+    cutoff_date: str,
+) -> None:
+    client = BethesdaClient(
+        core_url=config.bethesda_core_url,
+        content_url=config.bethesda_content_url,
+        bnet_key=config.bethesda_bnet_key,
+        bearer=config.bethesda_bearer,
+        timeout_seconds=config.request_timeout_seconds,
+    )
+    cutoff = parse_iso(cutoff_date)
+    if not cutoff:
+        raise ValueError("Invalid cutoff_date format")
+
+    template_map = {
+        "reddit": config.post_template_path,
+        "discord": config.discord_template_path,
+        "wiki": config.wiki_template_path,
+    }
+    template_path = template_map.get(template_kind.lower())
+    if not template_path:
+        raise ValueError("template_kind must be reddit, discord, or wiki")
+
+    out_base = Path(output_dir)
+    out_dir = out_base / template_kind.lower()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    page = max(config.page, 1)
+    total_written = 0
+    while True:
+        mods = client.fetch_mods(
+            product=config.product,
+            sort=config.sort,
+            time_period=config.time_period,
+            size=config.size,
+            page=page,
+            counts_platform=config.counts_platform,
+            mod_url_template=config.mod_url_template,
+        )
+        logger.info("Fetched %s mods (page %s)", len(mods), page)
+        if not mods:
+            break
+
+        stop = False
+        for mod in mods:
+            mod_time = parse_iso(mod.first_published_at) or parse_iso(mod.published_at)
+            if mod_time and mod_time <= cutoff:
+                stop = True
+                continue
+            if not _is_new_creation(mod, config):
+                continue
+            title = build_post_title(mod, "new")
+            body = render_post_body(mod, "new", template_path)
+            base_name = _safe_filename(
+                f"{mod.author_displayname or 'Unknown'}_{mod.title}_{mod.first_published_at or 'unknown'}"
+            )
+            suffix = "md" if template_kind.lower() in {"reddit", "discord"} else "txt"
+            (out_dir / f"{base_name}.{suffix}").write_text(
+                f"# {title}\n\n{body}\n" if template_kind.lower() != "wiki" else body + "\n",
+                encoding="utf-8",
+            )
+            total_written += 1
+
+        if stop:
+            break
+        page += 1
+
+    logger.info("Wrote %s %s templates", total_written, template_kind)
 
 
 def authorize_reddit(config: Config) -> None:

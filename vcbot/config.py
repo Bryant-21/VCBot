@@ -74,6 +74,7 @@ class Config:
     reddit_oauth_scope: Optional[str]
     discord_webhook_url: Optional[str]
     discord_template_path: Path
+    wiki_template_path: Path
     fallout4_hard_stop: str
     skyrim_hard_stop: str
     starfield_hard_stop: str
@@ -89,7 +90,7 @@ def load_config(env_path: Optional[Path] = None) -> Config:
     post_template_path = Path(_env("POST_TEMPLATE_PATH", "templates/post.md"))
     return Config(
         product=_env("BETHESDA_PRODUCT", Product.FALLOUT4.value),
-        sort=_env("BETHESDA_SORT", "ctime"),
+        sort=_env("BETHESDA_SORT", "first_ptime"),
         time_period=_env("BETHESDA_TIME_PERIOD", "all_time"),
         size=_env_int("BETHESDA_SIZE", 20),
         page=_env_int("BETHESDA_PAGE", 1),
@@ -113,6 +114,9 @@ def load_config(env_path: Optional[Path] = None) -> Config:
         discord_webhook_url=_env("DISCORD_WEBHOOK_URL"),
         discord_template_path=Path(
             _env("DISCORD_TEMPLATE_PATH", "templates/discord_post.md")
+        ),
+        wiki_template_path=Path(
+            _env("WIKI_TEMPLATE_PATH", "templates/wiki_post.txt")
         ),
         fallout4_hard_stop=_env("FALLOUT4_HARD_STOP", "2025-11-01T00:00:00+00:00"),
         skyrim_hard_stop=_env("SKYRIM_HARD_STOP", "2023-12-01T00:00:00+00:00"),

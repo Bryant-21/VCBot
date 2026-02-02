@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 from .bethesda import Mod
 from .utils import bethesda_image_url
@@ -20,6 +20,13 @@ PLATFORM_FULL_NAME = {
     "PLAYSTATION5": "PlayStation 5",
     "WINDOWS": "Windows",
     "ALL": "All Platforms",
+}
+PLATFORM_WIKI_LABEL = {
+    "WINDOWS": "PC",
+    "XBOXONE": "Xbox",
+    "XBOXSERIESX": "Xbox",
+    "PLAYSTATION4": "PlayStation",
+    "PLAYSTATION5": "PlayStation",
 }
 MAX_TITLE_FLAIRS = 10
 PRICE_EMOJI = ":credits:"
@@ -54,6 +61,17 @@ def _platform_full_names(platforms: List[str]) -> str:
     if not platforms:
         return "N/A"
     return ", ".join(PLATFORM_FULL_NAME.get(p, p) for p in platforms)
+
+
+def _platform_wiki_labels(platforms: List[str]) -> str:
+    if not platforms:
+        return "N/A"
+    labels = []
+    for platform in platforms:
+        label = PLATFORM_WIKI_LABEL.get(platform, platform)
+        if label not in labels:
+            labels.append(label)
+    return ", ".join(labels)
 
 
 def _format_value(value: Any) -> str:
@@ -102,6 +120,48 @@ def _price_text(mod: Mod) -> str:
     if not parts:
         return "N/A"
     return parts[0]
+
+
+def _price_credits(mod: Mod) -> str:
+    if not mod.prices:
+        return "N/A"
+    for price in mod.prices:
+        amount = price.get("amount")
+        if amount is None:
+            continue
+        return f"{{{{credits|{amount}}}}}"
+    return "N/A"
+
+
+def _cover_filename(mod: Mod) -> str:
+    filename = mod.cover_image.get("filename")
+    if isinstance(filename, str) and filename:
+        return filename
+    return "N/A"
+
+
+def _release_date(mod: Mod) -> str:
+    if not mod.first_published_at:
+        return "N/A"
+    return mod.first_published_at[:10]
+
+
+def _latest_version(mod: Mod) -> str:
+    latest: Optional[Dict[str, Any]] = None
+    for entry in mod.release_notes:
+        notes = entry.get("release_notes") if isinstance(entry, dict) else None
+        if not isinstance(notes, list):
+            continue
+        for note in notes:
+            if not isinstance(note, dict):
+                continue
+            if not note.get("published", True):
+                continue
+            if latest is None or (note.get("utime") or 0) > (latest.get("utime") or 0):
+                latest = note
+    if latest and latest.get("version_name"):
+        return str(latest.get("version_name"))
+    return "N/A"
 
 
 def _image_urls(mod: Mod) -> str:
@@ -171,14 +231,23 @@ def render_post_body(mod: Mod, post_type: str, template_path: Path) -> str:
         "post_type": post_type,
         "title": mod.title,
         "summary": _summary_text(mod),
+        "description": mod.description or "N/A",
         "author": author,
         "author_url": author_url,
         "product": mod.product_title or mod.product,
+        "product_title": mod.product_title or mod.product,
         "platforms": _join_list(mod.hardware_platforms),
         "platform_full_names": _platform_full_names(mod.hardware_platforms),
+        "platform_wiki": _platform_wiki_labels(mod.hardware_platforms),
         "platform_emojis": _platform_emojis(mod.hardware_platforms),
         "categories": _join_list(mod.categories),
         "prices": _price_text(mod),
+        "price_credits": _price_credits(mod),
+        "release_date": _release_date(mod),
+        "size": "N/A",
+        "version": _latest_version(mod),
+        "xbox_link": "Link",
+        "cover_image_filename": _cover_filename(mod),
         "details_url": mod.details_url or "N/A",
         "preview_image_url": mod.preview_image_url or "N/A",
         "cover_image_url": _non_banner_cover_url(mod) or "N/A",
