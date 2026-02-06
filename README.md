@@ -44,12 +44,42 @@ python main.py run
 
 ## Template Variables
 
-The default template supports placeholders like:
+The bot exposes all fields from the `Mod` class as template variables, plus several computed fields.
 
-- `{post_type}`, `{title}`, `{summary}`, `{author}`, `{author_url}`, `{product}`
-- `{platforms}`, `{platform_full_names}`, `{platform_emojis}`, `{categories}`, `{prices}`
-- `{details_url}`, `{preview_image_url}`, `{cover_image_url}`, `{banner_image_url}`
-- `{image_urls}`, `{mod_id}`
+### Common Variables
+
+- `{post_type}`: "creation" or "update"
+- `{title}`: Mod title
+- `{summary}`: Cleaned up short summary
+- `{description}`: Full mod description (markdown cleaned)
+- `{author}`: Author display name
+- `{author_url}`: URL to author's profile on Bethesda
+- `{product}`: Internal product ID (e.g. "STARFIELD")
+- `{product_title}`: Display name of the game
+- `{platforms}`: Comma-separated hardware platforms
+- `{platform_full_names}`: Comma-separated readable platform names
+- `{platform_emojis}`: Platform emojis (e.g. :xbox: :pc:)
+- `{categories}`: Comma-separated categories
+- `{prices}`: Human-readable price string
+- `{price_credits}`: Price in credits
+- `{release_date}`: First published date (YYYY-MM-DD)
+- `{version}`: Latest version from release notes
+- `{details_url}`: Link to mod on Bethesda site
+- `{preview_image_url}`, `{cover_image_url}`, `{banner_image_url}`: Various image URLs
+- `{image_urls}`: List of all screenshot URLs
+- `{mod_id}`: The Bethesda content ID
+
+### Timestamp Aliases
+
+- `{ptime}`: Published at (ISO format)
+- `{first_ptime}`: First published at (ISO format)
+- `{ctime}`: Created at (ISO format)
+- `{utime}`: Updated at (ISO format)
+
+### Full Mod Fields
+
+Any attribute of the `Mod` class in `vcbot/bethesda.py` can be used, including:
+`mod_id`, `title`, `overview`, `description`, `product`, `product_title`, `content_type`, `hardware_platforms`, `categories`, `author_displayname`, `author_buid`, `author_verified`, `author_official`, `published_buid`, `updated_buid`, `created_at`, `published_at`, `first_published_at`, `updated_at`, `status`, `moderation_state`, `error_info`, `deleted`, `published`, `moderated`, `beta`, `maintenance`, `restricted`, `use_high_report_threshold`, `marketplace`, `review_revision`, `author_price`, `achievement_friendly`, `default_locale`, `supported_locales`, `stats`.
 
 ## Tracking Notes
 

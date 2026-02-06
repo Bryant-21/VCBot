@@ -1,3 +1,4 @@
+from dataclasses import dataclass, asdict
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Tuple, Optional
@@ -250,14 +251,17 @@ def render_post_body(mod: Mod, post_type: str, template_path: Path) -> str:
         if mod.product and author != "Unknown"
         else "N/A"
     )
-    data: Dict[str, Any] = {
+
+    # Start with all base Mod fields
+    data: Dict[str, Any] = asdict(mod)
+
+    # Add/Override with computed or human-friendly fields
+    data.update({
         "post_type": post_type,
-        "title": mod.title,
         "summary": _summary_text(mod),
         "description": _clean_description(mod.description),
         "author": author,
         "author_url": author_url,
-        "product": mod.product_title or mod.product,
         "product_title": mod.product_title or mod.product,
         "platforms": _join_list(mod.hardware_platforms),
         "platform_full_names": _platform_full_names(mod.hardware_platforms),
@@ -271,13 +275,20 @@ def render_post_body(mod: Mod, post_type: str, template_path: Path) -> str:
         "version": _latest_version(mod),
         "xbox_link": "Link",
         "cover_image_filename": _cover_filename(mod),
-        "details_url": mod.details_url or "N/A",
-        "preview_image_url": mod.preview_image_url or "N/A",
-        "cover_image_url": _non_banner_cover_url(mod) or "N/A",
         "banner_image_url": _banner_url(mod),
         "image_urls": _image_urls(mod),
-        "mod_id": mod.mod_id,
-    }
+        # Explicit aliases requested by user
+        "ptime": mod.published_at or "N/A",
+        "first_ptime": mod.first_published_at or "N/A",
+        "ctime": mod.created_at or "N/A",
+        "utime": mod.updated_at or "N/A",
+    })
+
+    # Ensure N/A for empty values that are expected to be strings in templates
+    for key, value in data.items():
+        if value is None:
+            data[key] = "N/A"
+
     return template.format_map(_SafeDict(data))
 
 

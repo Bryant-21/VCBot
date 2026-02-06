@@ -24,12 +24,13 @@ Write-Host "PyInstaller completed in $pyinstallerTime" -ForegroundColor Green
 # Determine output app folder
 $APP_DIR = Join-Path "dist" $Name
 
-# Copy templates
-Write-Host "`n[2/3] Copying templates..." -ForegroundColor Yellow
+# Copy templates and README
+Write-Host "`n[2/3] Copying templates and README..." -ForegroundColor Yellow
 $TEMPLATE_TARGET_DIR = Join-Path $APP_DIR "templates"
 if (-Not (Test-Path $TEMPLATE_TARGET_DIR)) { New-Item -ItemType Directory -Path $TEMPLATE_TARGET_DIR | Out-Null }
 Copy-Item -Path "templates\*" -Destination $TEMPLATE_TARGET_DIR -Recurse -Force
-Write-Host "Templates copied." -ForegroundColor Green
+Copy-Item -Path "README.md" -Destination $APP_DIR -Force
+Write-Host "Templates and README copied." -ForegroundColor Green
 
 # Trim unneeded Qt junk
 Write-Host "Trimming unneeded Qt components..." -ForegroundColor Yellow

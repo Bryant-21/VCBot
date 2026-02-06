@@ -40,7 +40,7 @@ jobs:
         run: |
           pyinstaller --clean --noconfirm vcbot-ui.spec --log-level INFO
 
-      - name: Copy Templates and Trim Qt
+      - name: Copy Templates, README, and Trim Qt
         shell: pwsh
         run: |
           $APP = "dist/vcbot-ui"
@@ -48,6 +48,7 @@ jobs:
           $TEMPLATE_TARGET = "$APP/templates"
           if (-not (Test-Path $TEMPLATE_TARGET)) { New-Item -ItemType Directory -Path $TEMPLATE_TARGET | Out-Null }
           Copy-Item -Path "templates/*" -Destination $TEMPLATE_TARGET -Recurse -Force
+          Copy-Item -Path "README.md" -Destination $APP -Force
 
           Remove-Item "$APP/_internal/PySide6/Qt6WebEngine*" -Force -Recurse -ErrorAction SilentlyContinue
           Remove-Item "$APP/_internal/PySide6/resources/qtwebengine*" -Force -Recurse -ErrorAction SilentlyContinue
