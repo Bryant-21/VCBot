@@ -1,3 +1,4 @@
+import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -83,11 +84,31 @@ class Config:
     dry_run: bool
 
 
+def _resolve_template_path(env_name: str, default_rel: str) -> Path:
+    env_val = os.getenv(env_name)
+    if env_val:
+        return Path(env_val)
+    
+    # Try next to executable
+    if getattr(sys, "frozen", False):
+        exe_path = Path(sys.executable).parent / default_rel
+        if exe_path.exists():
+            return exe_path
+            
+    # Try relative to CWD
+    cwd_path = Path.cwd() / default_rel
+    if cwd_path.exists():
+        return cwd_path
+        
+    # Fallback to relative to this file's parent (dev mode)
+    return Path(__file__).resolve().parents[1] / default_rel
+
+
 def load_config(env_path: Optional[Path] = None) -> Config:
     load_dotenv(env_path)
 
     database_path = Path(_env("DATABASE_PATH", "data/vcbot.db"))
-    post_template_path = Path(_env("POST_TEMPLATE_PATH", "templates/post.md"))
+    post_template_path = _resolve_template_path("POST_TEMPLATE_PATH", "templates/post.md")
     return Config(
         product=_env("BETHESDA_PRODUCT", Product.FALLOUT4.value),
         sort=_env("BETHESDA_SORT", "first_ptime"),
@@ -112,12 +133,8 @@ def load_config(env_path: Optional[Path] = None) -> Config:
         reddit_redirect_uri=_env("REDDIT_REDIRECT_URI", "http://localhost:8080/callback"),
         reddit_oauth_scope=_env("REDDIT_OAUTH_SCOPE", "identity submit"),
         discord_webhook_url=_env("DISCORD_WEBHOOK_URL"),
-        discord_template_path=Path(
-            _env("DISCORD_TEMPLATE_PATH", "templates/discord_post.md")
-        ),
-        wiki_template_path=Path(
-            _env("WIKI_TEMPLATE_PATH", "templates/wiki_post.txt")
-        ),
+        discord_template_path=_resolve_template_path("DISCORD_TEMPLATE_PATH", "templates/discord_post.md"),
+        wiki_template_path=_resolve_template_path("WIKI_TEMPLATE_PATH", "templates/wiki_post.txt"),
         fallout4_hard_stop=_env("FALLOUT4_HARD_STOP", "2025-11-01T00:00:00+00:00"),
         skyrim_hard_stop=_env("SKYRIM_HARD_STOP", "2023-12-01T00:00:00+00:00"),
         starfield_hard_stop=_env("STARFIELD_HARD_STOP", "2024-06-01T00:00:00+00:00"),

@@ -1,6 +1,7 @@
 import sys
 import logging
 import shutil
+import json
 from pathlib import Path
 from PySide6 import QtCore, QtWidgets
 
@@ -44,12 +45,17 @@ class MainWindow(QtWidgets.QWidget):
         self.date_input.setCalendarPopup(True)
         self.date_input.setDisplayFormat("yyyy-MM-dd")
         self.date_input.setDate(QtCore.QDate.currentDate())
+        self.date_input.setMaximumDate(QtCore.QDate.currentDate())
 
         self.game_combo = QtWidgets.QComboBox()
         self.game_combo.addItems(["FALLOUT4", "SKYRIM", "STARFIELD"])
 
-        self.template_combo = QtWidgets.QComboBox()
-        self.template_combo.addItems(["reddit", "discord", "wiki"])
+        self.wiki_check = QtWidgets.QCheckBox("Wiki")
+        self.wiki_check.setChecked(True)
+        self.reddit_check = QtWidgets.QCheckBox("Reddit")
+        self.reddit_check.setChecked(True)
+        self.discord_check = QtWidgets.QCheckBox("Discord")
+        self.discord_check.setChecked(True)
 
         self.log_level_combo = QtWidgets.QComboBox()
         self.log_level_combo.addItems(["INFO", "DEBUG"])
@@ -62,10 +68,19 @@ class MainWindow(QtWidgets.QWidget):
         self.generate_button = QtWidgets.QPushButton("Generate")
         self.generate_button.clicked.connect(self._generate)
 
+        self.help_button = QtWidgets.QPushButton("Help")
+        self.help_button.clicked.connect(self._show_help)
+
         form = QtWidgets.QFormLayout()
         form.addRow("Cutoff date", self.date_input)
         form.addRow("Game", self.game_combo)
-        form.addRow("Template", self.template_combo)
+
+        template_layout = QtWidgets.QHBoxLayout()
+        template_layout.addWidget(self.wiki_check)
+        template_layout.addWidget(self.reddit_check)
+        template_layout.addWidget(self.discord_check)
+        form.addRow("Templates", template_layout)
+
         form.addRow("Log level", self.log_level_combo)
 
         output_layout = QtWidgets.QHBoxLayout()
@@ -75,31 +90,122 @@ class MainWindow(QtWidgets.QWidget):
 
         main_layout = QtWidgets.QVBoxLayout()
         main_layout.addLayout(form)
-        main_layout.addWidget(self.generate_button)
+        
+        button_layout = QtWidgets.QHBoxLayout()
+        button_layout.addWidget(self.generate_button)
+        button_layout.addWidget(self.help_button)
+        
+        main_layout.addLayout(button_layout)
         self.setLayout(main_layout)
+
+        self._load_ui_config()
+
+    def _load_ui_config(self) -> None:
+        config_path = Path("config.json")
+        if not config_path.exists():
+            return
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            date_str = data.get("cutoff_date")
+            if date_str:
+                self.date_input.setDate(QtCore.QDate.fromString(date_str, QtCore.Qt.ISODate))
+            
+            game = data.get("game")
+            if game:
+                index = self.game_combo.findText(game)
+                if index >= 0:
+                    self.game_combo.setCurrentIndex(index)
+            
+            self.wiki_check.setChecked(data.get("wiki", True))
+            self.reddit_check.setChecked(data.get("reddit", True))
+            self.discord_check.setChecked(data.get("discord", True))
+            
+            log_level = data.get("log_level")
+            if log_level:
+                index = self.log_level_combo.findText(log_level)
+                if index >= 0:
+                    self.log_level_combo.setCurrentIndex(index)
+            
+            output_folder = data.get("output_folder")
+            if output_folder:
+                self.output_input.setText(output_folder)
+        except Exception as exc:
+            logging.error("Failed to load UI config: %s", exc)
+
+    def _save_ui_config(self) -> None:
+        data = {
+            "cutoff_date": self.date_input.date().toString(QtCore.Qt.ISODate),
+            "game": self.game_combo.currentText(),
+            "wiki": self.wiki_check.isChecked(),
+            "reddit": self.reddit_check.isChecked(),
+            "discord": self.discord_check.isChecked(),
+            "log_level": self.log_level_combo.currentText(),
+            "output_folder": self.output_input.text(),
+        }
+        try:
+            with open("config.json", "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+        except Exception as exc:
+            logging.error("Failed to save UI config: %s", exc)
 
     def _browse_output(self) -> None:
         path = QtWidgets.QFileDialog.getExistingDirectory(self, "Select output folder")
         if path:
             self.output_input.setText(path)
 
+    def _show_help(self) -> None:
+        help_text = (
+            "This application checks the Bethesda mod contents API for mods published "
+            "between the current time (NOW) and your selected cutoff date.\n\n"
+            "Key Points:\n"
+            "• UTC Time: The API operates on UTC time. Depending on your timezone, "
+            "you may need to select a date one day earlier than expected to capture all recent mods.\n"
+            "• Templates: Select which platforms (Wiki, Reddit, Discord) you want to generate "
+            "templates for. Each selection will create specialized post files.\n"
+            "• Output: Generated templates are automatically saved into subfolders "
+            "within your chosen 'Output folder'.\n"
+            "• Persistent Settings: Your selections are saved to 'config.json' and "
+            "reloaded next time you start the app."
+        )
+        QtWidgets.QMessageBox.information(self, "How to use VC Bot", help_text)
+
     def _generate(self) -> None:
         level = logging.DEBUG if self.log_level_combo.currentText() == "DEBUG" else logging.INFO
         logging.getLogger().setLevel(level)
+        
+        self._save_ui_config()
+
         date_text = self.date_input.date().toString("yyyy-MM-dd")
         date_text = f"{date_text}T00:00:00+00:00"
+        
+        templates = []
+        if self.wiki_check.isChecked():
+            templates.append("wiki")
+        if self.reddit_check.isChecked():
+            templates.append("reddit")
+        if self.discord_check.isChecked():
+            templates.append("discord")
+        
+        if not templates:
+            QtWidgets.QMessageBox.warning(self, "Warning", "Please select at least one template.")
+            return
+
         config = load_config()
         config = config.__class__(
             **{**config.__dict__, "product": self.game_combo.currentText()}
         )
+        
         try:
-            generate_template_files(
-                config,
-                output_dir=self.output_input.text().strip(),
-                template_kind=self.template_combo.currentText(),
-                cutoff_date=date_text,
-            )
-            QtWidgets.QMessageBox.information(self, "Done", "Templates generated.")
+            for template_kind in templates:
+                generate_template_files(
+                    config,
+                    output_dir=self.output_input.text().strip(),
+                    template_kind=template_kind,
+                    cutoff_date=date_text,
+                )
+            QtWidgets.QMessageBox.information(self, "Done", f"Templates generated for: {', '.join(templates)}")
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "Error", str(exc))
 

@@ -1,0 +1,9 @@
+{
+    "cutoff_date": "2026-02-01",
+    "game": "FALLOUT4",
+    "wiki": true,
+    "reddit": true,
+    "discord": true,
+    "log_level": "INFO",
+    "output_folder": "C:\\AI\\VCBot\\out"
+}

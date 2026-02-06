@@ -38,7 +38,24 @@ jobs:
       - name: Build Executable
         shell: pwsh
         run: |
-          pyinstaller --onefile --name vcbot-ui ui_app.py
+          pyinstaller --clean --noconfirm vcbot-ui.spec --log-level INFO
+
+      - name: Copy Templates and Trim Qt
+        shell: pwsh
+        run: |
+          $APP = "dist/vcbot-ui"
+
+          $TEMPLATE_TARGET = "$APP/templates"
+          if (-not (Test-Path $TEMPLATE_TARGET)) { New-Item -ItemType Directory -Path $TEMPLATE_TARGET | Out-Null }
+          Copy-Item -Path "templates/*" -Destination $TEMPLATE_TARGET -Recurse -Force
+
+          Remove-Item "$APP/_internal/PySide6/Qt6WebEngine*" -Force -Recurse -ErrorAction SilentlyContinue
+          Remove-Item "$APP/_internal/PySide6/resources/qtwebengine*" -Force -Recurse -ErrorAction SilentlyContinue
+          Remove-Item "$APP/_internal/PySide6/Qt6Multimedia*" -Force -Recurse -ErrorAction SilentlyContinue
+          Remove-Item "$APP/_internal/PySide6/plugins/mediaservice" -Force -Recurse -ErrorAction SilentlyContinue
+          Remove-Item "$APP/_internal/PySide6/plugins/audio" -Force -Recurse -ErrorAction SilentlyContinue
+          Remove-Item "$APP/_internal/PySide6/plugins/bearer" -Force -Recurse -ErrorAction SilentlyContinue
+          Get-ChildItem $APP -Recurse -Include *.pdb,*.debug | Remove-Item -Force
 
       - name: Create ZIP
         id: create_zip
@@ -46,7 +63,7 @@ jobs:
         run: |
           $tag = "${{ steps.vars.outputs.tag }}"
           $zipName = "vcbot-ui_$tag.zip"
-          Compress-Archive -Path "dist/vcbot-ui.exe" -DestinationPath $zipName -Force
+          Compress-Archive -Path "dist/vcbot-ui/*" -DestinationPath $zipName -Force
           echo "zipName=$zipName" >> $env:GITHUB_OUTPUT
 
       - name: Create Release & Upload Asset
