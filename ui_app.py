@@ -35,6 +35,33 @@ def _configure_logging(level: int) -> None:
     )
 
 
+class Worker(QtCore.QObject):
+    finished = QtCore.Signal(int, list)
+    error = QtCore.Signal(str)
+
+    def __init__(self, config, output_dir, templates, date_text):
+        super().__init__()
+        self.config = config
+        self.output_dir = output_dir
+        self.templates = templates
+        self.date_text = date_text
+
+    def run(self):
+        try:
+            total_found = 0
+            for template_kind in self.templates:
+                count = generate_template_files(
+                    self.config,
+                    output_dir=self.output_dir,
+                    template_kind=template_kind,
+                    cutoff_date=self.date_text,
+                )
+                total_found = count
+            self.finished.emit(total_found, self.templates)
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
 class MainWindow(QtWidgets.QWidget):
     def __init__(self) -> None:
         super().__init__()
@@ -99,6 +126,7 @@ class MainWindow(QtWidgets.QWidget):
         self.setLayout(main_layout)
 
         self._load_ui_config()
+        self.worker_thread = None
 
     def _load_ui_config(self) -> None:
         config_path = Path("config.json")
@@ -196,18 +224,45 @@ class MainWindow(QtWidgets.QWidget):
         config = config.__class__(
             **{**config.__dict__, "product": self.game_combo.currentText()}
         )
-        
-        try:
-            for template_kind in templates:
-                generate_template_files(
-                    config,
-                    output_dir=self.output_input.text().strip(),
-                    template_kind=template_kind,
-                    cutoff_date=date_text,
-                )
-            QtWidgets.QMessageBox.information(self, "Done", f"Templates generated for: {', '.join(templates)}")
-        except Exception as exc:
-            QtWidgets.QMessageBox.critical(self, "Error", str(exc))
+
+        self.progress = QtWidgets.QProgressDialog("Generating templates...", None, 0, 0, self)
+        self.progress.setWindowTitle("Please wait")
+        self.progress.setWindowModality(QtCore.Qt.WindowModal)
+        self.progress.setMinimumDuration(0)
+        self.progress.show()
+
+        self.generate_button.setEnabled(False)
+
+        self.worker_thread = QtCore.QThread()
+        self.worker = Worker(
+            config,
+            output_dir=self.output_input.text().strip(),
+            templates=templates,
+            date_text=date_text
+        )
+        self.worker.moveToThread(self.worker_thread)
+
+        self.worker_thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self._on_generate_finished)
+        self.worker.error.connect(self._on_generate_error)
+        self.worker.finished.connect(self.worker_thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.worker.error.connect(self.worker_thread.quit)
+        self.worker.error.connect(self.worker.deleteLater)
+        self.worker_thread.finished.connect(self.worker_thread.deleteLater)
+
+        self.worker_thread.start()
+
+    def _on_generate_finished(self, total_found, templates):
+        self.progress.close()
+        self.generate_button.setEnabled(True)
+        msg = f"Templates generated for: {', '.join(templates)}\n\nFound {total_found} mods."
+        QtWidgets.QMessageBox.information(self, "Done", msg)
+
+    def _on_generate_error(self, error_msg):
+        self.progress.close()
+        self.generate_button.setEnabled(True)
+        QtWidgets.QMessageBox.critical(self, "Error", error_msg)
 
 
 def main() -> None:

@@ -617,7 +617,7 @@ def generate_template_files(
     output_dir: str,
     template_kind: str,
     cutoff_date: str,
-) -> None:
+) -> int:
     client = BethesdaClient(
         core_url=config.bethesda_core_url,
         content_url=config.bethesda_content_url,
@@ -683,6 +683,7 @@ def generate_template_files(
         page += 1
 
     logger.info("Wrote %s %s templates", total_written, template_kind)
+    return total_written
 
 
 def authorize_reddit(config: Config) -> None:
