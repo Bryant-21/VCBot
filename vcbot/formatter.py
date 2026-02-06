@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Tuple, Optional
 
 from .bethesda import Mod
@@ -42,9 +43,9 @@ def _join_list(items: List[str]) -> str:
 
 def _summary_text(mod: Mod) -> str:
     if mod.overview:
-        return mod.overview.strip()
+        return _strip_markdown(mod.overview.strip())
     if mod.description:
-        return mod.description.strip().splitlines()[0]
+        return _strip_markdown(mod.description.strip().splitlines()[0])
     return "No summary provided."
 
 
@@ -101,6 +102,28 @@ def _release_notes_text(mod: Mod) -> str:
             text = note.get("note") or ""
             parts.append(f"- {platform} {version}: {text}".strip())
     return "\n".join(parts) if parts else "N/A"
+
+
+def _strip_markdown(text: str) -> str:
+    cleaned = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    cleaned = re.sub(r"```.*?```", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"`([^`]*)`", r"\1", cleaned)
+    cleaned = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", cleaned)
+    cleaned = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", cleaned)
+    return cleaned
+
+
+def _escape_markdown(text: str) -> str:
+    return re.sub(r"([\\`*_{}\[\]()#+\-.!|>])", r"\\\1", text)
+
+
+def _clean_description(text: Optional[str]) -> str:
+    if not text:
+        return "N/A"
+    cleaned = _strip_markdown(text)
+    if not cleaned:
+        return "N/A"
+    return _escape_markdown(cleaned)
 
 
 def _totals(mod: Mod) -> Dict[str, Any]:
@@ -231,7 +254,7 @@ def render_post_body(mod: Mod, post_type: str, template_path: Path) -> str:
         "post_type": post_type,
         "title": mod.title,
         "summary": _summary_text(mod),
-        "description": mod.description or "N/A",
+        "description": _clean_description(mod.description),
         "author": author,
         "author_url": author_url,
         "product": mod.product_title or mod.product,
