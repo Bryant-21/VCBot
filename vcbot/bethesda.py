@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import hashlib
+import html
 import json
 from typing import Any, Dict, List, Optional
 
@@ -107,17 +108,27 @@ def parse_mod(item: Dict, mod_url_template: Optional[str] = None) -> Mod:
         else:
             details_url = f"https://creations.bethesda.net/en/{product.lower()}/details/{mod_id}"
 
+    description_raw = item.get("description")
+    overview_raw = item.get("overview")
+
+    # Fallback logic: if description is missing, use overview. 
+    # If overview is missing, use description (though overview is usually shorter).
+    if not description_raw and overview_raw:
+        description_raw = overview_raw
+    if not overview_raw and description_raw:
+        overview_raw = description_raw
+
     return Mod(
         mod_id=mod_id,
-        title=item.get("title") or "",
-        overview=item.get("overview"),
-        description=item.get("description"),
+        title=html.unescape(item.get("title") or ""),
+        overview=html.unescape(overview_raw) if overview_raw else None,
+        description=html.unescape(description_raw) if description_raw else None,
         product=product,
-        product_title=item.get("product_title"),
+        product_title=html.unescape(item.get("product_title")) if item.get("product_title") else None,
         content_type=item.get("content_type"),
         hardware_platforms=item.get("hardware_platforms") or [],
         categories=item.get("categories") or [],
-        author_displayname=item.get("author_displayname"),
+        author_displayname=html.unescape(item.get("author_displayname")) if item.get("author_displayname") else None,
         author_buid=item.get("author_buid"),
         author_verified=bool(item.get("author_verified")),
         author_official=bool(item.get("author_official")),
@@ -216,12 +227,18 @@ class BethesdaClient:
         bnet_key: Optional[str],
         bearer: Optional[str],
         timeout_seconds: float,
+        origin: Optional[str] = None,
+        referer: Optional[str] = None,
+        user_agent: Optional[str] = None,
     ) -> None:
         self.core_url = core_url
         self.content_url = content_url
         self._bnet_key = bnet_key
         self.bearer = bearer
         self.timeout_seconds = timeout_seconds
+        self.origin = origin
+        self.referer = referer
+        self.user_agent = user_agent
         self.session = requests.Session()
 
     def get_bnet_key(self) -> str:
@@ -244,6 +261,12 @@ class BethesdaClient:
         }
         if self.bearer:
             headers["authorization"] = f"Bearer {self.bearer}"
+        if self.origin:
+            headers["origin"] = self.origin
+        if self.referer:
+            headers["referer"] = self.referer
+        if self.user_agent:
+            headers["user-agent"] = self.user_agent
         return headers
 
     def fetch_content(

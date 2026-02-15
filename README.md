@@ -96,6 +96,19 @@ Any attribute of the `Mod` class in `vcbot/bethesda.py` can be used, including:
 - `retry`: Retry failed or missed posts for Reddit/Discord.
 - `reddit-auth`: Run the local OAuth callback flow and store a Reddit refresh token.
 
+### Reddit Web Mode
+
+If you cannot obtain official Reddit API keys (Client ID and Secret), you can use "Web Mode" by providing your browser session cookies and CSRF token.
+
+1. Log in to Reddit in your browser.
+2. Open Developer Tools (F12) -> Network tab.
+3. Create a post or perform an action, and look for a request to `graphql`.
+4. Copy the `Cookie` header value and the `x-reddit-csrf` header value.
+5. In your `.env` file, set:
+   - `REDDIT_SESSION_COOKIES`: The full string from the `Cookie` header.
+   - `REDDIT_CSRF_TOKEN`: The value from the `x-reddit-csrf` header.
+6. Ensure `REDDIT_CLIENT_ID` and `REDDIT_CLIENT_SECRET` are left empty.
+
 Use `--help` on either command to see available overrides.
 
 Manual mode: pass `--manual-output-dir <path>` to `run` to write Reddit/Discord templates instead of posting.

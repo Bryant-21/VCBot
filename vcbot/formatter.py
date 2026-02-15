@@ -127,6 +127,13 @@ def _clean_description(text: Optional[str]) -> str:
     return _escape_markdown(cleaned)
 
 
+def _markdown_description(text: Optional[str]) -> str:
+    if not text:
+        return "N/A"
+    # Just basic normalization, but keep markdown
+    return text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
 def _totals(mod: Mod) -> Dict[str, Any]:
     totals = mod.stats.get("totals") if isinstance(mod.stats, dict) else None
     return totals if isinstance(totals, dict) else {}
@@ -155,6 +162,20 @@ def _price_credits(mod: Mod) -> str:
             continue
         return f"{{{{credits|{amount}}}}}"
     return "N/A"
+
+
+def _price_text_plain(mod: Mod) -> str:
+    if not mod.prices:
+        return "N/A"
+    parts = []
+    for price in mod.prices:
+        amount = price.get("amount")
+        if amount is None:
+            continue
+        parts.append(f"{amount} Credits")
+    if not parts:
+        return "N/A"
+    return parts[0]
 
 
 def _cover_filename(mod: Mod) -> str:
@@ -188,12 +209,11 @@ def _latest_version(mod: Mod) -> str:
     return "N/A"
 
 
-def _image_urls(mod: Mod) -> str:
+def _image_urls(mod: Mod, raw: bool = False) -> List[str]:
     urls: List[str] = []
     cover_url = _non_banner_cover_url(mod)
-    for url in (cover_url, mod.preview_image_url):
-        if url and url not in urls:
-            urls.append(url)
+    if cover_url and cover_url not in urls:
+        urls.append(cover_url)
     for image in mod.screenshot_images:
         if _is_banner_image(image):
             continue
@@ -205,6 +225,11 @@ def _image_urls(mod: Mod) -> str:
                 url = bethesda_image_url(s3bucket, s3key)
         if url and url not in urls:
             urls.append(url)
+    return urls
+
+
+def _image_urls_text(mod: Mod) -> str:
+    urls = _image_urls(mod)
     return "\n".join(f"- {url}" for url in urls) if urls else "N/A"
 
 
@@ -232,14 +257,14 @@ def _non_banner_cover_url(mod: Mod) -> str:
     return mod.cover_image_url
 
 
-def build_post_title(mod: Mod, post_type: str) -> str:
+def build_post_title(mod: Mod, post_type: str, include_emojis: bool = True) -> str:
     if post_type == "update":
         date_hint = mod.updated_at[:10] if mod.updated_at else "Update"
         return f"[{_product_label(mod)}] Update: {mod.title} ({date_hint})"
     creator = mod.author_displayname or "Unknown Creator"
-    emojis = _platform_emojis(mod.hardware_platforms)
+    emojis = _platform_emojis(mod.hardware_platforms) if include_emojis else ""
     suffix = f" {emojis}" if emojis else ""
-    return f"{creator} presents {mod.title}{suffix}"
+    return f"{creator} presents: {mod.title}{suffix}"
 
 
 def render_post_body(mod: Mod, post_type: str, template_path: Path) -> str:
@@ -258,8 +283,10 @@ def render_post_body(mod: Mod, post_type: str, template_path: Path) -> str:
     # Add/Override with computed or human-friendly fields
     data.update({
         "post_type": post_type,
+        "title_plain": build_post_title(mod, post_type, include_emojis=False),
         "summary": _summary_text(mod),
         "description": _clean_description(mod.description),
+        "description_markdown": _markdown_description(mod.description),
         "author": author,
         "author_url": author_url,
         "product_title": mod.product_title or mod.product,
@@ -269,6 +296,7 @@ def render_post_body(mod: Mod, post_type: str, template_path: Path) -> str:
         "platform_emojis": _platform_emojis(mod.hardware_platforms),
         "categories": _join_list(mod.categories),
         "prices": _price_text(mod),
+        "prices_plain": _price_text_plain(mod),
         "price_credits": _price_credits(mod),
         "release_date": _release_date(mod),
         "size": "N/A",
@@ -276,7 +304,7 @@ def render_post_body(mod: Mod, post_type: str, template_path: Path) -> str:
         "xbox_link": "Link",
         "cover_image_filename": _cover_filename(mod),
         "banner_image_url": _banner_url(mod),
-        "image_urls": _image_urls(mod),
+        "image_urls": _image_urls_text(mod),
         # Explicit aliases requested by user
         "ptime": mod.published_at or "N/A",
         "first_ptime": mod.first_published_at or "N/A",

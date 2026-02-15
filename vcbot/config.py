@@ -73,6 +73,11 @@ class Config:
     reddit_subreddit: Optional[str]
     reddit_redirect_uri: Optional[str]
     reddit_oauth_scope: Optional[str]
+    reddit_session_cookies: Optional[str]
+    reddit_csrf_token: Optional[str]
+    reddit_fallout4_flair_id: Optional[str]
+    reddit_skyrim_flair_id: Optional[str]
+    reddit_starfield_flair_id: Optional[str]
     discord_webhook_url: Optional[str]
     discord_template_path: Path
     wiki_template_path: Path
@@ -81,6 +86,9 @@ class Config:
     starfield_hard_stop: str
     bgs_ignore_before: str
     synthetic_last_seen_first_ptime: Optional[str]
+    bethesda_origin: Optional[str]
+    bethesda_referer: Optional[str]
+    bethesda_user_agent: Optional[str]
     dry_run: bool
 
 
@@ -132,6 +140,11 @@ def load_config(env_path: Optional[Path] = None) -> Config:
         reddit_subreddit=_env("REDDIT_SUBREDDIT"),
         reddit_redirect_uri=_env("REDDIT_REDIRECT_URI", "http://localhost:8080/callback"),
         reddit_oauth_scope=_env("REDDIT_OAUTH_SCOPE", "identity submit"),
+        reddit_session_cookies=_env("REDDIT_SESSION_COOKIES"),
+        reddit_csrf_token=_env("REDDIT_CSRF_TOKEN"),
+        reddit_fallout4_flair_id=_env("REDDIT_FALLOUT4_FLAIR_ID"),
+        reddit_skyrim_flair_id=_env("REDDIT_SKYRIM_FLAIR_ID"),
+        reddit_starfield_flair_id=_env("REDDIT_STARFIELD_FLAIR_ID"),
         discord_webhook_url=_env("DISCORD_WEBHOOK_URL"),
         discord_template_path=_resolve_template_path("DISCORD_TEMPLATE_PATH", "templates/discord_post.md"),
         wiki_template_path=_resolve_template_path("WIKI_TEMPLATE_PATH", "templates/wiki_post.txt"),
@@ -140,5 +153,8 @@ def load_config(env_path: Optional[Path] = None) -> Config:
         starfield_hard_stop=_env("STARFIELD_HARD_STOP", "2024-06-01T00:00:00+00:00"),
         bgs_ignore_before=_env("BGS_IGNORE_BEFORE", "2025-01-01T00:00:00+00:00"),
         synthetic_last_seen_first_ptime=_env("SYNTHETIC_LAST_SEEN_FIRST_PTIME"),
+        bethesda_origin=_env("BETHESDA_ORIGIN"),
+        bethesda_referer=_env("BETHESDA_REFERER"),
+        bethesda_user_agent=_env("BETHESDA_USER_AGENT"),
         dry_run=_env_bool("DRY_RUN", False),
     )

@@ -3,6 +3,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 import threading
+import concurrent.futures
 import requests
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
@@ -10,10 +11,10 @@ from typing import Callable, List, Optional, Tuple
 from .bethesda import BethesdaClient, Mod, compute_mod_hash
 from .config import Config
 from .db import NullStore, SQLiteStore
-from .formatter import build_post_title, render_post_body
+from .formatter import _image_urls, build_post_title, render_post_body
 from .reddit_client import RedditClient
 from .discord_client import DiscordClient
-from .utils import parse_iso, utc_now_iso
+from .utils import parse_iso, utc_now_iso, download_image
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +160,16 @@ def _hard_stop_for_product(config: Config) -> Optional[str]:
     return None
 
 
+def _flair_id_for_product(mod: Mod, config: Config) -> Optional[str]:
+    if mod.product == "FALLOUT4":
+        return config.reddit_fallout4_flair_id
+    elif mod.product == "SKYRIM":
+        return config.reddit_skyrim_flair_id
+    elif mod.product == "STARFIELD":
+        return config.reddit_starfield_flair_id
+    return None
+
+
 def _max_iso(left: Optional[str], right: Optional[str]) -> Optional[str]:
     left_time = parse_iso(left) if left else None
     right_time = parse_iso(right) if right else None
@@ -214,7 +225,7 @@ def generate_sample_post(
                 len(mod.prices),
             )
             if _is_new_creation(mod, config):
-                title = build_post_title(mod, "new")
+                title = build_post_title(mod, "new", include_emojis=False)
                 body = render_post_body(mod, "new", config.post_template_path)
                 reddit_entries.append(f"# {title}\n\n{body}")
                 discord_entries.append(
@@ -367,6 +378,9 @@ def run(
                 user_agent=config.reddit_user_agent,
                 subreddit=config.reddit_subreddit,
                 refresh_token=reddit_refresh_token,
+                session_cookies=config.reddit_session_cookies,
+                csrf_token=config.reddit_csrf_token,
+                flair_id=config.reddit_flair_id,
             )
             if config.discord_webhook_url:
                 discord = DiscordClient(config.discord_webhook_url)
@@ -378,7 +392,7 @@ def run(
             if action == "update":
                 logger.info("Update stub (no post sent): %s", mod.title)
                 return
-            title = build_post_title(mod, action)
+            title = build_post_title(mod, action, include_emojis=False)
 
             if dry_run:
                 body = render_post_body(mod, action, config.post_template_path)
@@ -402,14 +416,25 @@ def run(
                 )
                 wiki_body = render_post_body(mod, action, config.wiki_template_path)
                 base_name = _safe_filename(
-                    f"{mod.author_displayname or 'Unknown'}_{mod.title}_{mod.first_published_at or 'unknown'}"
+                    f"{(mod.first_published_at or 'unknown')[:10]}_{mod.author_displayname or 'Unknown'}_{mod.title}"
                 )
-                (reddit_dir / f"{base_name}.md").write_text(
+
+                # Reddit subfolder and images
+                post_reddit_dir = reddit_dir / base_name
+                post_reddit_dir.mkdir(parents=True, exist_ok=True)
+                (post_reddit_dir / f"{base_name}.md").write_text(
                     f"# {title}\n\n{reddit_body}\n", encoding="utf-8"
                 )
                 logger.info(
-                    "Wrote %s", (reddit_dir / f"{base_name}.md").resolve()
+                    "Wrote %s", (post_reddit_dir / f"{base_name}.md").resolve()
                 )
+                if mod.preview_image_url:
+                    download_image(mod.preview_image_url, post_reddit_dir / "image_00_preview.jpg", convert_to_jpg=True)
+                
+                gallery_urls = _image_urls(mod)
+                for i, url in enumerate(gallery_urls):
+                    download_image(url, post_reddit_dir / f"image_{i+1:02d}.jpg", convert_to_jpg=True)
+
                 (discord_dir / f"{base_name}.md").write_text(
                     discord_body + "\n", encoding="utf-8"
                 )
@@ -425,8 +450,28 @@ def run(
 
             post_count += 1
             try:
+                image_paths = []
+                # Use a temporary directory or data folder for transient images
+                # For simplicity in 'run' mode, let's reuse the logic but clean up or use a specific folder
+                temp_img_dir = Path("data/temp_images") / mod.mod_id
+                temp_img_dir.mkdir(parents=True, exist_ok=True)
+                
+                if mod.preview_image_url:
+                    img_path = temp_img_dir / "preview.jpg"
+                    if download_image(mod.preview_image_url, img_path, convert_to_jpg=True):
+                        image_paths.append(img_path)
+                
+                gallery_urls = _image_urls(mod)
+                for i, url in enumerate(gallery_urls):
+                    img_path = temp_img_dir / f"image_{i+1:02d}.jpg"
+                    if download_image(url, img_path, convert_to_jpg=True):
+                        image_paths.append(img_path)
+
                 post_id, post_url = reddit.submit_post(
-                    title, render_post_body(mod, action, config.post_template_path)
+                    title, 
+                    render_post_body(mod, action, config.post_template_path),
+                    flair_id=_flair_id_for_product(mod, config),
+                    image_paths=image_paths
                 )
                 store.mark_posted(
                     mod_id=mod.mod_id,
@@ -505,7 +550,7 @@ def retry_failed_posts(config: Config, dry_run: bool = False) -> None:
     store = SQLiteStore(config.database_path)
     reddit = None
     discord = None
-    if config.reddit_client_id:
+    if config.reddit_client_id or (config.reddit_session_cookies and config.reddit_csrf_token):
         try:
             reddit_refresh_token = store.get_meta("reddit_refresh_token")
             reddit = RedditClient(
@@ -516,6 +561,9 @@ def retry_failed_posts(config: Config, dry_run: bool = False) -> None:
                 user_agent=config.reddit_user_agent,
                 subreddit=config.reddit_subreddit,
                 refresh_token=reddit_refresh_token,
+                session_cookies=config.reddit_session_cookies,
+                csrf_token=config.reddit_csrf_token,
+                flair_id=config.reddit_flair_id,
             )
         except Exception as exc:
             logger.warning("Reddit client init failed: %s", exc)
@@ -540,7 +588,25 @@ def retry_failed_posts(config: Config, dry_run: bool = False) -> None:
                     logger.info("DRY RUN retry reddit: %s", title)
                     continue
                 try:
-                    post_id, post_url = reddit.submit_post(title, body)
+                    image_paths = []
+                    temp_img_dir = Path("data/temp_images") / mod.mod_id
+                    temp_img_dir.mkdir(parents=True, exist_ok=True)
+                    if mod.preview_image_url:
+                        img_path = temp_img_dir / "preview.jpg"
+                        if download_image(mod.preview_image_url, img_path, convert_to_jpg=True):
+                            image_paths.append(img_path)
+                    gallery_urls = _image_urls(mod)
+                    for i, url in enumerate(gallery_urls):
+                        img_path = temp_img_dir / f"image_{i+1:02d}.jpg"
+                        if download_image(url, img_path, convert_to_jpg=True):
+                            image_paths.append(img_path)
+
+                    post_id, post_url = reddit.submit_post(
+                        title, 
+                        body, 
+                        flair_id=_flair_id_for_product(mod, config),
+                        image_paths=image_paths
+                    )
                     store.mark_posted(
                         mod_id=mod.mod_id,
                         post_type=entry["post_type"],
@@ -617,7 +683,7 @@ def generate_template_files(
     output_dir: str,
     template_kind: str,
     cutoff_date: str,
-) -> int:
+) -> Tuple[int, List[Tuple[str, str, List[str], str, Optional[str]]]]:
     client = BethesdaClient(
         core_url=config.bethesda_core_url,
         content_url=config.bethesda_content_url,
@@ -644,46 +710,101 @@ def generate_template_files(
 
     page = max(config.page, 1)
     total_written = 0
-    while True:
-        mods = client.fetch_mods(
-            product=config.product,
-            sort=config.sort,
-            time_period=config.time_period,
-            size=config.size,
-            page=page,
-            counts_platform=config.counts_platform,
-            mod_url_template=config.mod_url_template,
-        )
-        logger.info("Fetched %s mods (page %s)", len(mods), page)
-        if not mods:
-            break
-
-        stop = False
-        for mod in mods:
-            mod_time = parse_iso(mod.first_published_at) or parse_iso(mod.published_at)
-            if mod_time and mod_time <= cutoff:
-                stop = True
-                continue
-            if not _is_new_creation(mod, config):
-                continue
-            title = build_post_title(mod, "new")
-            body = render_post_body(mod, "new", template_path)
-            base_name = _safe_filename(
-                f"{mod.author_displayname or 'Unknown'}_{mod.title}_{mod.first_published_at or 'unknown'}"
+    generated_posts = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        while True:
+            mods = client.fetch_mods(
+                product=config.product,
+                sort=config.sort,
+                time_period=config.time_period,
+                size=config.size,
+                page=page,
+                counts_platform=config.counts_platform,
+                mod_url_template=config.mod_url_template,
             )
-            suffix = "md" if template_kind.lower() in {"reddit", "discord"} else "txt"
+            logger.info("Fetched %s mods (page %s)", len(mods), page)
+            if not mods:
+                break
+
+            stop = False
+            futures = []
+            for mod in mods:
+                mod_time = parse_iso(mod.first_published_at) or parse_iso(mod.published_at)
+                if mod_time and mod_time <= cutoff:
+                    stop = True
+                    continue
+                if not _is_new_creation(mod, config):
+                    continue
+
+                futures.append(executor.submit(
+                    _write_template_task,
+                    mod=mod,
+                    template_kind=template_kind,
+                    template_path=template_path,
+                    out_dir=out_dir,
+                    config=config
+                ))
+
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    res = future.result()
+                    if res:
+                        total_written += 1
+                        generated_posts.append(res)
+                except Exception as exc:
+                    logger.error("Error in template task: %s", exc)
+
+            if stop:
+                break
+            page += 1
+
+    logger.info("Wrote %s %s templates", total_written, template_kind)
+    return total_written, generated_posts
+
+
+def _write_template_task(
+    mod: Mod,
+    template_kind: str,
+    template_path: Path,
+    out_dir: Path,
+    config: Config
+) -> Optional[Tuple[str, str, List[str], str, Optional[str]]]:
+    try:
+        title = build_post_title(mod, "new", include_emojis=False)
+        body = render_post_body(mod, "new", template_path)
+        pub_date = mod.first_published_at or mod.published_at or "unknown"
+        base_name = _safe_filename(
+            f"{pub_date[:10]}_{mod.author_displayname or 'Unknown'}_{mod.title}"
+        )
+        suffix = "md" if template_kind.lower() in {"reddit", "discord"} else "txt"
+        
+        image_paths = []
+        if template_kind.lower() == "reddit":
+            post_dir = out_dir / base_name
+            post_dir.mkdir(parents=True, exist_ok=True)
+            (post_dir / f"{base_name}.{suffix}").write_text(
+                f"# {title}\n\n{body}\n", encoding="utf-8"
+            )
+            if mod.preview_image_url:
+                img_path = post_dir / "image_00_preview.jpg"
+                if download_image(mod.preview_image_url, img_path, convert_to_jpg=True):
+                    image_paths.append(str(img_path))
+            
+            gallery_urls = _image_urls(mod)
+            for i, url in enumerate(gallery_urls):
+                img_path = post_dir / f"image_{i+1:02d}.jpg"
+                if download_image(url, img_path, convert_to_jpg=True):
+                    image_paths.append(str(img_path))
+        else:
             (out_dir / f"{base_name}.{suffix}").write_text(
                 f"# {title}\n\n{body}\n" if template_kind.lower() != "wiki" else body + "\n",
                 encoding="utf-8",
             )
-            total_written += 1
-
-        if stop:
-            break
-        page += 1
-
-    logger.info("Wrote %s %s templates", total_written, template_kind)
-    return total_written
+            
+        return title, body, image_paths, pub_date, _flair_id_for_product(mod, config)
+    except Exception as exc:
+        logger.error("Failed to write template for %s: %s", mod.mod_id, exc)
+        return None
 
 
 def authorize_reddit(config: Config) -> None:

@@ -1,4 +1,4 @@
-**{title}**
+**{title_plain}**
 Author: [{author}]({author_url})
 Price: {prices}
 Description: {summary}

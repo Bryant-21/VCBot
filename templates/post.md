@@ -1,20 +1,14 @@
-{summary}
-
-**Post Type**
-{post_type}
+{title_plain}
 
 **Mod Info**
 - Title: {title}
-- Price: {prices}
+- Price: {prices_plain}
 - Author: [{author}]({author_url})
-- Product: {product}
-- Platforms: {platform_emojis}
+- Game: {product}
+- Platforms: {platform_wiki}
 - Categories: {categories}
+- Link: {details_url}
+- About: {summary}
 
-**Links**
-- Mod: {details_url}
-- Preview: {preview_image_url}
 
-**Gallery**
-{image_urls}
-
+{description_markdown}

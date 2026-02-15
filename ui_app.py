@@ -36,7 +36,7 @@ def _configure_logging(level: int) -> None:
 
 
 class Worker(QtCore.QObject):
-    finished = QtCore.Signal(int, list)
+    finished = QtCore.Signal(int, list, list)
     error = QtCore.Signal(str)
 
     def __init__(self, config, output_dir, templates, date_text):
@@ -49,16 +49,78 @@ class Worker(QtCore.QObject):
     def run(self):
         try:
             total_found = 0
+            reddit_posts = []
             for template_kind in self.templates:
-                count = generate_template_files(
+                count, posts = generate_template_files(
                     self.config,
                     output_dir=self.output_dir,
                     template_kind=template_kind,
                     cutoff_date=self.date_text,
                 )
-                total_found = count
-            self.finished.emit(total_found, self.templates)
+                total_found += count
+                if template_kind.lower() == "reddit":
+                    # Sort reddit posts by date (index 3 is pub_date)
+                    reddit_posts = sorted(posts, key=lambda x: x[3])
+                    logging.info("Collected and sorted %d reddit posts (oldest first)", len(reddit_posts))
+            self.finished.emit(total_found, self.templates, reddit_posts)
         except Exception as exc:
+            logging.exception("Error in Worker.run")
+            self.error.emit(str(exc))
+
+
+class PostWorker(QtCore.QObject):
+    finished = QtCore.Signal(int, list)
+    error = QtCore.Signal(str)
+    progress = QtCore.Signal(str)
+
+    def __init__(self, config, reddit_posts):
+        super().__init__()
+        self.config = config
+        self.reddit_posts = reddit_posts
+
+    def run(self):
+        try:
+            from vcbot.db import SQLiteStore
+            from vcbot.reddit_client import RedditClient
+            
+            store = SQLiteStore(self.config.database_path)
+            reddit = None
+            try:
+                reddit_refresh_token = store.get_meta("reddit_refresh_token")
+                reddit = RedditClient(
+                    client_id=self.config.reddit_client_id,
+                    client_secret=self.config.reddit_client_secret,
+                    username=self.config.reddit_username,
+                    password=self.config.reddit_password,
+                    user_agent=self.config.reddit_user_agent,
+                    subreddit=self.config.reddit_subreddit,
+                    refresh_token=reddit_refresh_token,
+                    session_cookies=self.config.reddit_session_cookies,
+                    csrf_token=self.config.reddit_csrf_token,
+                )
+            finally:
+                store.close()
+
+            if not reddit:
+                raise Exception("Failed to initialize Reddit client")
+
+            results = []
+            success_count = 0
+            for title, body, image_paths, _, flair_id in self.reddit_posts:
+                try:
+                    self.progress.emit(f"Posting: {title}")
+                    # Convert string paths back to Path objects
+                    image_path_objs = [Path(p) for p in image_paths] if image_paths else None
+                    post_id, post_url = reddit.submit_post(title, body, flair_id=flair_id, image_paths=image_path_objs)
+                    results.append((title, post_url))
+                    success_count += 1
+                except Exception as e:
+                    logging.error(f"Failed to post '{title}': {e}")
+                    results.append((title, f"Error: {e}"))
+            
+            self.finished.emit(success_count, results)
+        except Exception as exc:
+            logging.exception("Error in PostWorker.run")
             self.error.emit(str(exc))
 
 
@@ -95,6 +157,18 @@ class MainWindow(QtWidgets.QWidget):
         self.generate_button = QtWidgets.QPushButton("Generate")
         self.generate_button.clicked.connect(self._generate)
 
+        self.reddit_button = QtWidgets.QPushButton("Post to Reddit")
+        self.reddit_button.setEnabled(False)
+        self.reddit_button.clicked.connect(self._post_to_reddit)
+
+        self.post_single_button = QtWidgets.QPushButton("Post Single")
+        self.post_single_button.setEnabled(False)
+        self.post_single_button.clicked.connect(self._post_single)
+
+        self.dry_run_button = QtWidgets.QPushButton("Dry Run Post")
+        self.dry_run_button.setEnabled(False)
+        self.dry_run_button.clicked.connect(self._dry_run_post)
+
         self.help_button = QtWidgets.QPushButton("Help")
         self.help_button.clicked.connect(self._show_help)
 
@@ -120,6 +194,9 @@ class MainWindow(QtWidgets.QWidget):
         
         button_layout = QtWidgets.QHBoxLayout()
         button_layout.addWidget(self.generate_button)
+        button_layout.addWidget(self.reddit_button)
+        button_layout.addWidget(self.post_single_button)
+        button_layout.addWidget(self.dry_run_button)
         button_layout.addWidget(self.help_button)
         
         main_layout.addLayout(button_layout)
@@ -127,6 +204,7 @@ class MainWindow(QtWidgets.QWidget):
 
         self._load_ui_config()
         self.worker_thread = None
+        self.reddit_posts = []
 
     def _load_ui_config(self) -> None:
         config_path = Path("config.json")
@@ -232,6 +310,8 @@ class MainWindow(QtWidgets.QWidget):
         self.progress.show()
 
         self.generate_button.setEnabled(False)
+        self.reddit_button.setEnabled(False)
+        self.reddit_posts = []
 
         self.worker_thread = QtCore.QThread()
         self.worker = Worker(
@@ -253,15 +333,140 @@ class MainWindow(QtWidgets.QWidget):
 
         self.worker_thread.start()
 
-    def _on_generate_finished(self, total_found, templates):
+    def _on_generate_finished(self, total_found, templates, reddit_posts):
         self.progress.close()
         self.generate_button.setEnabled(True)
+        self.reddit_posts = reddit_posts
+        if self.reddit_posts:
+            self.reddit_button.setEnabled(True)
+            self.post_single_button.setEnabled(True)
+            self.dry_run_button.setEnabled(True)
+
         msg = f"Templates generated for: {', '.join(templates)}\n\nFound {total_found} mods."
+        if self.reddit_posts:
+            msg += f"\n\n{len(self.reddit_posts)} posts ready for Reddit."
         QtWidgets.QMessageBox.information(self, "Done", msg)
 
     def _on_generate_error(self, error_msg):
         self.progress.close()
         self.generate_button.setEnabled(True)
+        QtWidgets.QMessageBox.critical(self, "Error", error_msg)
+
+    def _post_to_reddit(self):
+        if not self.reddit_posts:
+            return
+        
+        confirm = QtWidgets.QMessageBox.question(
+            self, "Confirm", 
+            f"Are you sure you want to post {len(self.reddit_posts)} templates to Reddit?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+        )
+        if confirm != QtWidgets.QMessageBox.Yes:
+            return
+
+        self._start_post_worker(self.reddit_posts)
+
+    def _post_single(self):
+        if not self.reddit_posts:
+            return
+        
+        confirm = QtWidgets.QMessageBox.question(
+            self, "Confirm", 
+            "Are you sure you want to post the first template to Reddit for testing?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+        )
+        if confirm != QtWidgets.QMessageBox.Yes:
+            return
+
+        self._start_post_worker([self.reddit_posts[0]])
+
+    def _start_post_worker(self, posts_to_submit):
+        config = load_config()
+        
+        self.post_progress = QtWidgets.QProgressDialog("Posting to Reddit...", "Cancel", 0, len(posts_to_submit), self)
+        self.post_progress.setWindowTitle("Posting")
+        self.post_progress.setWindowModality(QtCore.Qt.WindowModal)
+        self.post_progress.show()
+
+        self.generate_button.setEnabled(False)
+        self.reddit_button.setEnabled(False)
+        self.post_single_button.setEnabled(False)
+        self.dry_run_button.setEnabled(False)
+
+        self.post_thread = QtCore.QThread()
+        self.post_worker = PostWorker(config, posts_to_submit)
+        self.post_worker.moveToThread(self.post_thread)
+
+        self.post_thread.started.connect(self.post_worker.run)
+        self.post_worker.progress.connect(self._on_post_progress)
+        self.post_worker.finished.connect(self._on_post_finished)
+        self.post_worker.error.connect(self._on_post_error)
+        
+        self.post_worker.finished.connect(self.post_thread.quit)
+        self.post_worker.finished.connect(self.post_worker.deleteLater)
+        self.post_worker.error.connect(self.post_thread.quit)
+        self.post_worker.error.connect(self.post_worker.deleteLater)
+        self.post_thread.finished.connect(self.post_thread.deleteLater)
+
+        self.post_thread.start()
+
+    def _dry_run_post(self):
+        if not self.reddit_posts:
+            return
+        
+        title, body, image_paths, _, flair_id = self.reddit_posts[0]
+        
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Dry Run - Reddit Post Preview")
+        dialog.resize(600, 500)
+        
+        layout = QtWidgets.QVBoxLayout(dialog)
+        
+        layout.addWidget(QtWidgets.QLabel(f"<b>Title:</b> (Flair: {flair_id or 'None'})"))
+        title_edit = QtWidgets.QLineEdit(title)
+        title_edit.setReadOnly(True)
+        layout.addWidget(title_edit)
+        
+        if image_paths:
+            layout.addWidget(QtWidgets.QLabel(f"<b>Images to upload ({len(image_paths)}):</b>"))
+            images_list = QtWidgets.QListWidget()
+            for p in image_paths:
+                images_list.addItem(p)
+            layout.addWidget(images_list)
+
+        layout.addWidget(QtWidgets.QLabel("<b>Body:</b>"))
+        body_edit = QtWidgets.QPlainTextEdit(body)
+        body_edit.setReadOnly(True)
+        layout.addWidget(body_edit)
+        
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
+        buttons.accepted.connect(dialog.accept)
+        layout.addWidget(buttons)
+        
+        dialog.exec()
+
+    def _on_post_progress(self, message):
+        self.post_progress.setLabelText(message)
+        self.post_progress.setValue(self.post_progress.value() + 1)
+
+    def _on_post_finished(self, success_count, results):
+        self.post_progress.close()
+        self.generate_button.setEnabled(True)
+        self.reddit_button.setEnabled(True)
+        self.post_single_button.setEnabled(True)
+        self.dry_run_button.setEnabled(True)
+        
+        result_text = "\n".join([f"• {title}: {url}" for title, url in results])
+        msg = f"Posted {success_count} of {len(self.reddit_posts)} successfully.\n\n{result_text}"
+        QtWidgets.QMessageBox.information(self, "Reddit Results", msg)
+        self.reddit_posts = [] # Clear after posting
+
+    def _on_post_error(self, error_msg):
+        self.post_progress.close()
+        self.generate_button.setEnabled(True)
+        self.reddit_button.setEnabled(True)
+        self.post_single_button.setEnabled(True)
+        self.dry_run_button.setEnabled(True)
         QtWidgets.QMessageBox.critical(self, "Error", error_msg)
 
 

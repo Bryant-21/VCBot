@@ -19,7 +19,7 @@
 '''{{Pagename nd}}''' is a [[Creation]] for ''[[{product_title}]]'' that adds {summary}. It was authored by [[Mod:{author}|{author}]] and can be purchased for {price_credits}.
 
 ==Content==
-* {title}
+* {title_plain}
 
 ==Description==
 {description}
