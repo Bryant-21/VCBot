@@ -77,9 +77,9 @@ def _create_client(config: Config) -> BethesdaClient:
         content_url=config.bethesda_content_url,
         bnet_key=config.bethesda_bnet_key,
         bearer=config.bethesda_bearer,
-        origin=config.bethesda_origin,
-        referer=config.bethesda_referer,
-        user_agent=config.bethesda_user_agent,
+        #origin=config.bethesda_origin,
+        #referer=config.bethesda_referer,
+        #user_agent=config.bethesda_user_agent,
         timeout_seconds=config.request_timeout_seconds,
     )
 
