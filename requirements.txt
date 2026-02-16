@@ -3,3 +3,4 @@ praw>=7.7
 python-dotenv>=1.0
 PySide6>=6.5
 Pillow>=10.0
+pypandoc>=1.16.2

@@ -1,11 +1,42 @@
+import logging
+import traceback
 from dataclasses import dataclass, asdict
 import html
+import os
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Tuple, Optional
 
 from .bethesda import Mod
 from .utils import bethesda_image_url
+
+# Optional pypandoc support for markdown to wikitext conversion
+_pypandoc = None
+_pypandoc_initialized = False
+
+
+def _init_pypandoc():
+    """Initialize pypandoc if USE_PYPANDOC env var is set. Called lazily at runtime."""
+    global _pypandoc, _pypandoc_initialized
+    if _pypandoc_initialized:
+        return
+    _pypandoc_initialized = True
+    use_pypandoc = os.environ.get("USE_PYPANDOC", "").lower() in ("1", "true", "yes")
+    if not use_pypandoc:
+        return
+    try:
+        import pypandoc as _pypandoc_module
+        # Ensure Pandoc binary is available, download if missing
+        try:
+            _pypandoc_module.get_pandoc_version()
+        except OSError:
+            logging.warning("Pandoc binary not found, downloading...")
+            _pypandoc_module.download_pandoc()
+        _pypandoc = _pypandoc_module
+        logging.info("pypandoc initialized successfully")
+    except ImportError:
+        logging.error("unable to import pypandoc")
+        traceback.print_exc()
 
 
 PLATFORM_EMOJI = {
@@ -151,6 +182,13 @@ def _wiki_description(text: Optional[str]) -> str:
         return "N/A"
     result = text.replace("\r\n", "\n").replace("\r", "\n").strip()
     
+    # Use pypandoc if available and enabled via USE_PYPANDOC env var
+    _init_pypandoc()
+    if _pypandoc is not None:
+        logging.info("Using pypandoc for markdown to wikitext conversion")
+        return _pypandoc.convert_text(result, 'mediawiki', format='markdown')
+    
+    # Fallback to regex-based conversion
     # Convert headers: ### Header -> === Header ===
     result = re.sub(r"^######\s*(.+)$", r"====== \1 ======", result, flags=re.MULTILINE)
     result = re.sub(r"^#####\s*(.+)$", r"===== \1 =====", result, flags=re.MULTILINE)

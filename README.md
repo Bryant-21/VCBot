@@ -35,6 +35,7 @@ python main.py run
 ## Notes
 
 - The bot fetches `ugc.bnetKey` from `https://cdn.bethesda.net/data/core` unless `BETHESDA_BNET_KEY` is provided.
+- Set `USE_PYPANDOC=1` to use pypandoc for markdown-to-wikitext conversion instead of the built-in regex-based converter. Requires `pip install pypandoc`; the Pandoc binary will be auto-downloaded if missing.
 - Mod tracking data is stored in `data/vcbot.db` (configurable via `DATABASE_PATH`).
 - Update posts trigger when the mod `utime` changes or the content hash changes.
 - You can customize the mod detail URL template via `BETHESDA_MOD_URL_TEMPLATE`.
