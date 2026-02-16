@@ -22,7 +22,7 @@
 * {title_plain}
 
 ==Description==
-{description}
+{description_wiki}
 
 {{Mod Footer|creation}}
 {{Mod Footer|{product}}}

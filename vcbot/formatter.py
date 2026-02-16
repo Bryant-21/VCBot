@@ -134,6 +134,52 @@ def _markdown_description(text: Optional[str]) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
+def _wiki_description(text: Optional[str]) -> str:
+    """Convert markdown text to MediaWiki wikitext format."""
+    if not text:
+        return "N/A"
+    result = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    
+    # Convert headers: ### Header -> === Header ===
+    result = re.sub(r"^######\s*(.+)$", r"====== \1 ======", result, flags=re.MULTILINE)
+    result = re.sub(r"^#####\s*(.+)$", r"===== \1 =====", result, flags=re.MULTILINE)
+    result = re.sub(r"^####\s*(.+)$", r"==== \1 ====", result, flags=re.MULTILINE)
+    result = re.sub(r"^###\s*(.+)$", r"=== \1 ===", result, flags=re.MULTILINE)
+    result = re.sub(r"^##\s*(.+)$", r"== \1 ==", result, flags=re.MULTILINE)
+    result = re.sub(r"^#\s*(.+)$", r"= \1 =", result, flags=re.MULTILINE)
+    
+    # Convert bold: **text** or __text__ -> '''text'''
+    result = re.sub(r"\*\*(.+?)\*\*", r"'''\1'''", result)
+    result = re.sub(r"__(.+?)__", r"'''\1'''", result)
+    
+    # Convert italic: *text* or _text_ -> ''text''
+    result = re.sub(r"(?<!')\*([^*]+)\*(?!')", r"''\1''", result)
+    result = re.sub(r"(?<!')_([^_]+)_(?!')", r"''\1''", result)
+    
+    # Convert links: [text](url) -> [url text]
+    result = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"[\2 \1]", result)
+    
+    # Convert images: ![alt](url) -> [[File:url|alt]]
+    result = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r"[[File:\2|\1]]", result)
+    
+    # Convert inline code: `code` -> <code>code</code>
+    result = re.sub(r"`([^`]+)`", r"<code>\1</code>", result)
+    
+    # Convert code blocks: ```code``` -> <pre>code</pre>
+    result = re.sub(r"```\w*\n?(.*?)```", r"<pre>\1</pre>", result, flags=re.DOTALL)
+    
+    # Convert unordered lists: - item or * item -> * item
+    result = re.sub(r"^[\-\*]\s+", r"* ", result, flags=re.MULTILINE)
+    
+    # Convert ordered lists: 1. item -> # item
+    result = re.sub(r"^\d+\.\s+", r"# ", result, flags=re.MULTILINE)
+    
+    # Convert horizontal rules: --- or *** -> ----
+    result = re.sub(r"^[\-\*]{3,}\s*$", r"----", result, flags=re.MULTILINE)
+    
+    return result
+
+
 def _totals(mod: Mod) -> Dict[str, Any]:
     totals = mod.stats.get("totals") if isinstance(mod.stats, dict) else None
     return totals if isinstance(totals, dict) else {}
@@ -287,6 +333,7 @@ def render_post_body(mod: Mod, post_type: str, template_path: Path) -> str:
         "summary": _summary_text(mod),
         "description": _clean_description(mod.description),
         "description_markdown": _markdown_description(mod.description),
+        "description_wiki": _wiki_description(mod.description),
         "author": author,
         "author_url": author_url,
         "product_title": mod.product_title or mod.product,
