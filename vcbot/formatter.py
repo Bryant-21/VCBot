@@ -1,4 +1,5 @@
 from dataclasses import dataclass, asdict
+import html
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Tuple, Optional
@@ -29,6 +30,11 @@ PLATFORM_WIKI_LABEL = {
     "XBOXSERIESX": "Xbox",
     "PLAYSTATION4": "PlayStation",
     "PLAYSTATION5": "PlayStation",
+}
+PRODUCT_WIKI_NAME = {
+    "FALLOUT4": "Fallout 4",
+    "STARFIELD": "Starfield",
+    "SKYRIM": "Skyrim",
 }
 MAX_TITLE_FLAIRS = 10
 PRICE_EMOJI = ":credits:"
@@ -130,15 +136,16 @@ def _clean_description(text: Optional[str]) -> str:
 def _markdown_description(text: Optional[str]) -> str:
     if not text:
         return "N/A"
-    # Just basic normalization, but keep markdown
-    return text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    result = html.unescape(text)
+    return result.replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
 def _wiki_description(text: Optional[str]) -> str:
     """Convert markdown text to MediaWiki wikitext format."""
     if not text:
         return "N/A"
-    result = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    result = html.unescape(text)
+    result = result.replace("\r\n", "\n").replace("\r", "\n").strip()
     
     # Convert headers: ### Header -> === Header ===
     result = re.sub(r"^######\s*(.+)$", r"====== \1 ======", result, flags=re.MULTILINE)
@@ -148,13 +155,16 @@ def _wiki_description(text: Optional[str]) -> str:
     result = re.sub(r"^##\s*(.+)$", r"== \1 ==", result, flags=re.MULTILINE)
     result = re.sub(r"^#\s*(.+)$", r"= \1 =", result, flags=re.MULTILINE)
     
+    # - item or * item -> * item
+    result = re.sub(r"^[\-\*]\s+", r"* ", result, flags=re.MULTILINE)
+    
     # Convert bold: **text** or __text__ -> '''text'''
     result = re.sub(r"\*\*(.+?)\*\*", r"'''\1'''", result)
     result = re.sub(r"__(.+?)__", r"'''\1'''", result)
     
     # Convert italic: *text* or _text_ -> ''text''
-    result = re.sub(r"(?<!')\*([^*]+)\*(?!')", r"''\1''", result)
-    result = re.sub(r"(?<!')_([^_]+)_(?!')", r"''\1''", result)
+    result = re.sub(r"(?<!['\w])\*([^*\n]+)\*(?!['\w])", r"''\1''", result)
+    result = re.sub(r"(?<!['\w])_([^_\n]+)_(?!['\w])", r"''\1''", result)
     
     # Convert links: [text](url) -> [url text]
     result = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"[\2 \1]", result)
@@ -167,9 +177,6 @@ def _wiki_description(text: Optional[str]) -> str:
     
     # Convert code blocks: ```code``` -> <pre>code</pre>
     result = re.sub(r"```\w*\n?(.*?)```", r"<pre>\1</pre>", result, flags=re.DOTALL)
-    
-    # Convert unordered lists: - item or * item -> * item
-    result = re.sub(r"^[\-\*]\s+", r"* ", result, flags=re.MULTILINE)
     
     # Convert ordered lists: 1. item -> # item
     result = re.sub(r"^\d+\.\s+", r"# ", result, flags=re.MULTILINE)
@@ -337,6 +344,7 @@ def render_post_body(mod: Mod, post_type: str, template_path: Path) -> str:
         "author": author,
         "author_url": author_url,
         "product_title": mod.product_title or mod.product,
+        "product_wiki": PRODUCT_WIKI_NAME.get(mod.product, mod.product_title or mod.product),
         "platforms": _join_list(mod.hardware_platforms),
         "platform_full_names": _platform_full_names(mod.hardware_platforms),
         "platform_wiki": _platform_wiki_labels(mod.hardware_platforms),

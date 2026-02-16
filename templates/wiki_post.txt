@@ -1,5 +1,5 @@
-{{for|the program|Verified Creator Program}}
-{{Infobox mod
+{{{{for|the program|Verified Creator Program}}}}
+{{{{Infobox mod
 |games        ={product}
 |type         =creation
 |image        ={cover_image_filename}
@@ -12,11 +12,11 @@
 |cost         ={price_credits}
 |keyword      ={categories}
 |abstract     ={summary}
-}}
+}}}}
 
-{{quotation|{summary}}}
+{{{{quotation|{summary}}}}}
 
-'''{{Pagename nd}}''' is a [[Creation]] for ''[[{product_title}]]'' that adds {summary}. It was authored by [[Mod:{author}|{author}]] and can be purchased for {price_credits}.
+'''{{{{Pagename nd}}}}''' is a [[Creation]] for ''[[{product_wiki}]]'' that adds {summary}. It was authored by [[Mod:{author}|{author}]] and can be purchased for {price_credits}.
 
 ==Content==
 * {title_plain}
@@ -24,7 +24,7 @@
 ==Description==
 {description_wiki}
 
-{{Mod Footer|creation}}
-{{Mod Footer|{product}}}
+{{{{Mod Footer|creation}}}}
+{{{{Mod Footer|{product_wiki}}}}}
 
 [[Category:{author}]]

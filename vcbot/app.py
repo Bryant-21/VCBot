@@ -1,4 +1,5 @@
 import logging
+import shutil
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -441,10 +442,30 @@ def run(
                 logger.info(
                     "Wrote %s", (discord_dir / f"{base_name}.md").resolve()
                 )
-                (wiki_dir / f"{base_name}.txt").write_text(
+                # Wiki subfolder and images
+                post_wiki_dir = wiki_dir / base_name
+                post_wiki_dir.mkdir(parents=True, exist_ok=True)
+                (post_wiki_dir / f"{base_name}.txt").write_text(
                     wiki_body + "\n", encoding="utf-8"
                 )
-                logger.info("Wrote %s", (wiki_dir / f"{base_name}.txt").resolve())
+                logger.info("Wrote %s", (post_wiki_dir / f"{base_name}.txt").resolve())
+                
+                # Download/copy images for wiki
+                if mod.preview_image_url:
+                    wiki_preview_path = post_wiki_dir / "image_00_preview.jpg"
+                    reddit_preview_path = post_reddit_dir / "image_00_preview.jpg"
+                    if reddit_preview_path.exists():
+                        shutil.copy(reddit_preview_path, wiki_preview_path)
+                    else:
+                        download_image(mod.preview_image_url, wiki_preview_path, convert_to_jpg=True)
+                
+                for i, url in enumerate(gallery_urls):
+                    wiki_img_path = post_wiki_dir / f"image_{i+1:02d}.jpg"
+                    reddit_img_path = post_reddit_dir / f"image_{i+1:02d}.jpg"
+                    if reddit_img_path.exists():
+                        shutil.copy(reddit_img_path, wiki_img_path)
+                    else:
+                        download_image(url, wiki_img_path, convert_to_jpg=True)
                 post_count += 1
                 return
 
@@ -779,6 +800,7 @@ def _write_template_task(
         suffix = "md" if template_kind.lower() in {"reddit", "discord"} else "txt"
         
         image_paths = []
+        gallery_urls = _image_urls(mod)
         if template_kind.lower() == "reddit":
             post_dir = out_dir / base_name
             post_dir.mkdir(parents=True, exist_ok=True)
@@ -790,15 +812,35 @@ def _write_template_task(
                 if download_image(mod.preview_image_url, img_path, convert_to_jpg=True):
                     image_paths.append(str(img_path))
             
-            gallery_urls = _image_urls(mod)
             for i, url in enumerate(gallery_urls):
                 img_path = post_dir / f"image_{i+1:02d}.jpg"
                 if download_image(url, img_path, convert_to_jpg=True):
                     image_paths.append(str(img_path))
+        elif template_kind.lower() == "wiki":
+            post_dir = out_dir / base_name
+            post_dir.mkdir(parents=True, exist_ok=True)
+            (post_dir / f"{base_name}.{suffix}").write_text(
+                body + "\n", encoding="utf-8"
+            )
+            # Check if reddit images exist to copy, otherwise download
+            reddit_dir = out_dir.parent / "reddit" / base_name
+            if mod.preview_image_url:
+                wiki_img = post_dir / "image_00_preview.jpg"
+                reddit_img = reddit_dir / "image_00_preview.jpg"
+                if reddit_img.exists():
+                    shutil.copy(reddit_img, wiki_img)
+                else:
+                    download_image(mod.preview_image_url, wiki_img, convert_to_jpg=True)
+            for i, url in enumerate(gallery_urls):
+                wiki_img = post_dir / f"image_{i+1:02d}.jpg"
+                reddit_img = reddit_dir / f"image_{i+1:02d}.jpg"
+                if reddit_img.exists():
+                    shutil.copy(reddit_img, wiki_img)
+                else:
+                    download_image(url, wiki_img, convert_to_jpg=True)
         else:
             (out_dir / f"{base_name}.{suffix}").write_text(
-                f"# {title}\n\n{body}\n" if template_kind.lower() != "wiki" else body + "\n",
-                encoding="utf-8",
+                f"# {title}\n\n{body}\n", encoding="utf-8"
             )
             
         return title, body, image_paths, pub_date, _flair_id_for_product(mod, config)
