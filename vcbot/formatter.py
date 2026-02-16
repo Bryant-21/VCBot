@@ -36,6 +36,12 @@ PRODUCT_WIKI_NAME = {
     "STARFIELD": "Starfield",
     "SKYRIM": "Skyrim",
 }
+
+PRODUCT_WIKI_FOOTER = {
+    "FALLOUT4": "FO4",
+    "STARFIELD": "Starfield",
+    "SKYRIM": "Skyrim",
+}
 MAX_TITLE_FLAIRS = 10
 PRICE_EMOJI = ":credits:"
 
@@ -136,16 +142,14 @@ def _clean_description(text: Optional[str]) -> str:
 def _markdown_description(text: Optional[str]) -> str:
     if not text:
         return "N/A"
-    result = html.unescape(text)
-    return result.replace("\r\n", "\n").replace("\r", "\n").strip()
+    return text.replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
 def _wiki_description(text: Optional[str]) -> str:
     """Convert markdown text to MediaWiki wikitext format."""
     if not text:
         return "N/A"
-    result = html.unescape(text)
-    result = result.replace("\r\n", "\n").replace("\r", "\n").strip()
+    result = text.replace("\r\n", "\n").replace("\r", "\n").strip()
     
     # Convert headers: ### Header -> === Header ===
     result = re.sub(r"^######\s*(.+)$", r"====== \1 ======", result, flags=re.MULTILINE)
@@ -345,6 +349,7 @@ def render_post_body(mod: Mod, post_type: str, template_path: Path) -> str:
         "author_url": author_url,
         "product_title": mod.product_title or mod.product,
         "product_wiki": PRODUCT_WIKI_NAME.get(mod.product, mod.product_title or mod.product),
+        "product_wiki_footer": PRODUCT_WIKI_FOOTER.get(mod.product, mod.product_title or mod.product),
         "platforms": _join_list(mod.hardware_platforms),
         "platform_full_names": _platform_full_names(mod.hardware_platforms),
         "platform_wiki": _platform_wiki_labels(mod.hardware_platforms),

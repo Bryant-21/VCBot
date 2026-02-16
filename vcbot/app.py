@@ -161,6 +161,45 @@ def _hard_stop_for_product(config: Config) -> Optional[str]:
     return None
 
 
+def _write_wiki_output(
+    mod: Mod,
+    wiki_body: str,
+    wiki_dir: Path,
+    base_name: str,
+    reddit_dir: Optional[Path] = None,
+) -> None:
+    """Write wiki output file and images to a subfolder."""
+    post_wiki_dir = wiki_dir / base_name
+    post_wiki_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Use mod title for wiki filename
+    safe_title = _safe_filename(mod.title)
+    (post_wiki_dir / f"{safe_title}.wiki").write_text(
+        wiki_body + "\n", encoding="utf-8"
+    )
+    logger.info("Wrote %s", (post_wiki_dir / f"{safe_title}.wiki").resolve())
+    
+    # Download/copy images for wiki
+    gallery_urls = _image_urls(mod)
+    reddit_base_dir = reddit_dir / base_name if reddit_dir else None
+    
+    if mod.preview_image_url:
+        wiki_preview_path = post_wiki_dir / "image_00_preview.jpg"
+        reddit_preview_path = reddit_base_dir / "image_00_preview.jpg" if reddit_base_dir else None
+        if reddit_preview_path and reddit_preview_path.exists():
+            shutil.copy(reddit_preview_path, wiki_preview_path)
+        else:
+            download_image(mod.preview_image_url, wiki_preview_path, convert_to_jpg=True)
+    
+    for i, url in enumerate(gallery_urls):
+        wiki_img_path = post_wiki_dir / f"image_{i+1:02d}.jpg"
+        reddit_img_path = reddit_base_dir / f"image_{i+1:02d}.jpg" if reddit_base_dir else None
+        if reddit_img_path and reddit_img_path.exists():
+            shutil.copy(reddit_img_path, wiki_img_path)
+        else:
+            download_image(url, wiki_img_path, convert_to_jpg=True)
+
+
 def _flair_id_for_product(mod: Mod, config: Config) -> Optional[str]:
     if mod.product == "FALLOUT4":
         return config.reddit_fallout4_flair_id
@@ -442,30 +481,7 @@ def run(
                 logger.info(
                     "Wrote %s", (discord_dir / f"{base_name}.md").resolve()
                 )
-                # Wiki subfolder and images
-                post_wiki_dir = wiki_dir / base_name
-                post_wiki_dir.mkdir(parents=True, exist_ok=True)
-                (post_wiki_dir / f"{base_name}.txt").write_text(
-                    wiki_body + "\n", encoding="utf-8"
-                )
-                logger.info("Wrote %s", (post_wiki_dir / f"{base_name}.txt").resolve())
-                
-                # Download/copy images for wiki
-                if mod.preview_image_url:
-                    wiki_preview_path = post_wiki_dir / "image_00_preview.jpg"
-                    reddit_preview_path = post_reddit_dir / "image_00_preview.jpg"
-                    if reddit_preview_path.exists():
-                        shutil.copy(reddit_preview_path, wiki_preview_path)
-                    else:
-                        download_image(mod.preview_image_url, wiki_preview_path, convert_to_jpg=True)
-                
-                for i, url in enumerate(gallery_urls):
-                    wiki_img_path = post_wiki_dir / f"image_{i+1:02d}.jpg"
-                    reddit_img_path = post_reddit_dir / f"image_{i+1:02d}.jpg"
-                    if reddit_img_path.exists():
-                        shutil.copy(reddit_img_path, wiki_img_path)
-                    else:
-                        download_image(url, wiki_img_path, convert_to_jpg=True)
+                _write_wiki_output(mod, wiki_body, wiki_dir, base_name, reddit_dir)
                 post_count += 1
                 return
 
@@ -797,7 +813,7 @@ def _write_template_task(
         base_name = _safe_filename(
             f"{pub_date[:10]}_{mod.author_displayname or 'Unknown'}_{mod.title}"
         )
-        suffix = "md" if template_kind.lower() in {"reddit", "discord"} else "txt"
+        suffix = "md" if template_kind.lower() in {"reddit", "discord"} else "wiki"
         
         image_paths = []
         gallery_urls = _image_urls(mod)
@@ -817,27 +833,8 @@ def _write_template_task(
                 if download_image(url, img_path, convert_to_jpg=True):
                     image_paths.append(str(img_path))
         elif template_kind.lower() == "wiki":
-            post_dir = out_dir / base_name
-            post_dir.mkdir(parents=True, exist_ok=True)
-            (post_dir / f"{base_name}.{suffix}").write_text(
-                body + "\n", encoding="utf-8"
-            )
-            # Check if reddit images exist to copy, otherwise download
-            reddit_dir = out_dir.parent / "reddit" / base_name
-            if mod.preview_image_url:
-                wiki_img = post_dir / "image_00_preview.jpg"
-                reddit_img = reddit_dir / "image_00_preview.jpg"
-                if reddit_img.exists():
-                    shutil.copy(reddit_img, wiki_img)
-                else:
-                    download_image(mod.preview_image_url, wiki_img, convert_to_jpg=True)
-            for i, url in enumerate(gallery_urls):
-                wiki_img = post_dir / f"image_{i+1:02d}.jpg"
-                reddit_img = reddit_dir / f"image_{i+1:02d}.jpg"
-                if reddit_img.exists():
-                    shutil.copy(reddit_img, wiki_img)
-                else:
-                    download_image(url, wiki_img, convert_to_jpg=True)
+            reddit_dir = out_dir.parent / "reddit"
+            _write_wiki_output(mod, body, out_dir, base_name, reddit_dir)
         else:
             (out_dir / f"{base_name}.{suffix}").write_text(
                 f"# {title}\n\n{body}\n", encoding="utf-8"

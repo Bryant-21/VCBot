@@ -25,6 +25,6 @@
 {description_wiki}
 
 {{{{Mod Footer|creation}}}}
-{{{{Mod Footer|{product_wiki}}}}}
+{{{{Mod Footer|{product_wiki_footer}}}}}
 
 [[Category:{author}]]
