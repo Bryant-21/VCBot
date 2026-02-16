@@ -1,6 +1,6 @@
 {{{{for|the program|Verified Creator Program}}}}
 {{{{Infobox mod
-|games        ={product}
+|games        ={product_wiki_footer}
 |type         =creation
 |image        ={cover_image_filename}
 |author       =[[Mod:{author}|{author}]]
